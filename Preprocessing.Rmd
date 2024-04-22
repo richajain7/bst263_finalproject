@@ -15,6 +15,8 @@ Our goal is to compare several statistical learning methods and their test perfo
 library(tidyr)
 library(tidyverse)
 library(dplyr)
+library(VIM)
+library(lubridate)
 ```
 
 #### read in data
@@ -22,12 +24,89 @@ library(dplyr)
 ```{r}
 admission <- read.csv("data/HDHI Admission data.csv")
 mortality <- read.csv("data/HDHI Mortality Data.csv")
-pollution <- read.csv("data/HDHI Pollution Data.csv")
 ```
 
-#### to do: 
-- remove features unrelated to cardiac issues
-- 
+```{r, warning = FALSE}
+# convert columns to numeric
+admission <- admission %>% 
+  filter(MRD.No. != "NILL") %>% 
+  mutate(across(c(MRD.No., HB:BNP, EF, CHEST.INFECTION), ~as.numeric(.))) 
+```
+
+#### knn with k = 10 for missing predictors
+
+```{r}
+admission_columns <- colnames(admission)
+```
+
+```{r}
+# replacing blanks with NAs to be able to impute using KNNs
+admission <- replace(admission, admission == "", NA)
+admission <- replace(admission, admission == "EMPTY", NA)
+admission <- replace(admission, admission == "\\", NA)
+sum(is.na(admission))
+```
+
+
+```{r}
+admission_imp <- kNN(admission, k = 5, variable = admission_columns, imp_var = FALSE)
+```
+
+```{r}
+sum(is.na(admission_imp))
+```
+
+#### length of stay - 3 options:
+
+- use original continous variable
+- convert to categorical quantiles
+- cut continuous varibale at 15
+
+##### categorical quantiles
+
+```{r}
+# cargorical quantiles
+cutoffs = quantile(admission_imp$DURATION.OF.STAY, probs = seq(0, 1, 0.25))
+admission_imp <- admission_imp %>% 
+  mutate(Duration_Cat = cut(DURATION.OF.STAY, breaks = cutoffs)) 
+```
+
+### generate the outcome variable column: 
+
+- limiting to only those with readmission and only their first visit
+
+```{r}
+processed_admissions <- admission_imp %>% 
+  #mutate(D.O.A = coalesce(as.Date(D.O.A, format = "%m/%d/%Y")), as.Date(D.O.A, format = "%d/%m/%Y")) %>% 
+  mutate(D.O.A = coalesce(mdy(D.O.A), dmy(D.O.A))) %>% 
+  arrange(MRD.No., D.O.A) %>% 
+  group_by(MRD.No.) %>% 
+  mutate(num_visits = n()) %>% 
+  slice(1) %>% 
+  ungroup() %>% 
+  filter(num_visits > 1)
+```
+
+```{r}
+sum(is.na(processed_admissions$D.O.A))
+```
+
+#### train test split 80/20
+
+```{r}
+set.seed(263)
+indices <- sample(1:nrow(processed_admissions), size = floor(0.8 * nrow(processed_admissions)), replace = FALSE)
+admissions_train <- processed_admissions[indices, ]
+admissions_test <- processed_admissions[-indices, ]
+```
+
+
+#### models: 
+- forest related 
+- bagging
+- penalized regression 
+- fit logistic to predict mortality and use those probabilities as weights for IPW
+- GAMs 
 
 
 
