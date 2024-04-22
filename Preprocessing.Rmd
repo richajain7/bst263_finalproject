@@ -1,0 +1,36 @@
+---
+title: "FinalProject_PreProcessing"
+author: "Richa"
+date: "2024-04-22"
+output: html_document
+---
+# Project Objective: 
+
+The overarching objective of this project is to develop a model to predict hospital readmission based on key characteristics from the patient’s first visit. 
+Our goal is to compare several statistical learning methods and their test performance and determine which model will most accurately predict whether or not someone will be readmitted at a later time (within a 2-year time frame, given the structure of the data).
+
+#### load libraries
+
+```{r, warning=FALSE, message=FALSE}
+library(tidyr)
+library(tidyverse)
+library(dplyr)
+```
+
+#### read in data
+
+```{r}
+admission <- read.csv("data/HDHI Admission data.csv")
+mortality <- read.csv("data/HDHI Mortality Data.csv")
+pollution <- read.csv("data/HDHI Pollution Data.csv")
+```
+
+#### to do: 
+- remove features unrelated to cardiac issues
+- 
+
+
+
+
+
+
