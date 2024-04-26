@@ -1,0 +1,136 @@
+---
+title: "models_slay"
+author: "Richa"
+date: "2024-04-26"
+output: html_document
+---
+
+```{r}
+library(caret)
+library(tidyverse)
+library(dplyr)
+library(readr)
+library(randomForest)
+library(janitor)
+```
+
+
+```{r}
+# read in train and test data
+admissions_test <- readRDS("admissions_test.rdata")
+admissions_train <- readRDS("admissions_train.rdata")
+```
+
+```{r}
+admissions_test <- admissions_test %>% 
+  mutate(readmission = as.factor(readmission)) %>% 
+  clean_names()
+admissions_train <- admissions_train %>% 
+  mutate(readmission = as.factor(readmission)) %>% 
+  clean_names()
+```
+
+
+# Random Forest Model
+
+```{r}
+set.seed(263)
+
+cols <- colnames(admissions_train)
+admissions_train_subset <- admissions_train[, -c(1:4,9,57, 58)]
+admissions_test_subset <- admissions_test[, -c(1:4,9,57, 58)]
+
+# cross-validation
+control <- trainControl(method='cv', 
+                        number=10, 
+                        search = 'grid')
+
+# tuning 
+# 
+tunegrid <- expand.grid(.mtry = 20)
+# = 1:(ncol(Hitters)-`)
+
+rf_tune <- train(readmission ~ .,
+                 data = admissions_train_subset,
+                 method = 'rf',
+                 metric = 'Accuracy',
+                 tuneGrid  = tunegrid, 
+                 trControl = control)
+
+print(rf_tune)
+
+## best mtry
+mtry_min <- which.min(rf_tune$results$Accuracy)
+mtry_min
+```
+
+```{r}
+rf_final <- randomForest(readmission ~ ., data = admissions_train_subset,
+                         mtry = mtry_min,
+                         importance = TRUE,
+                         ntree = 200)
+importance(rf_final)
+varImpPlot(rf_final)
+```
+
+
+# Testing Random Forest
+
+```{r}
+# on training data
+train_predict_rf <- predict(rf_final, admissions_train_subset)
+# on testing data
+test_predict_rf <- predict(rf_final, admissions_test_subset)
+```
+
+# Confusion Matrices - RF
+
+```{r}
+rf_final$confusion
+```
+
+```{r}
+table(test_predict_rf)
+```
+
+
+# XGBoost
+
+```{r}
+ames_X = data.matrix(ames %>% dplyr::select(-Sale_Price))
+ames_Y = ames %>% dplyr::pull(Sale_Price)
+
+ix_train = sample(1:length(ames_Y), 0.75*length(ames_Y))
+ix_test = setdiff(1:length(ames_Y), ix_train)
+
+parameters = expand.grid(
+  eta = seq(0.1, 1, length.out=10), # learning rate
+  max.depth = c(2, 4, 6, 8, 10), # maximum depth of tree
+  subsample = c(0.25, 0.5, 1), # subsampling ratio
+  nrounds = c(2, 4, 6, 8, 10) # maximum number of boosting iterations
+)
+
+parameters$train_error = rep(0, nrow(parameters))
+parameters$test_error = rep(0, nrow(parameters))
+for (i in 1:nrow(parameters)) {
+  fit_xgboost = xgboost(data = ames_X[ix_train,], label = ames_Y[ix_train], 
+                        eta = parameters$eta[i],
+                        max.depth = parameters$max.depth[i],
+                        nrounds = parameters$nrounds[i], 
+                        subsample = parameters$subsample[i],
+                        objective = "reg:squarederror", 
+                        verbose = F)
+  
+  pred_xgboost = predict(fit_xgboost, ames_X[ix_test,])
+  
+  parameters$train_error[i] = tail(fit_xgboost$evaluation_log$train_rmse, 1)
+  parameters$test_error[i] = sqrt(mean((pred_xgboost - ames_Y[ix_test])^2))
+}
+
+parameters %>% 
+  group_by(nrounds) %>% 
+  filter(train_error == min(train_error))
+```
+
+
+

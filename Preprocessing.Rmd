@@ -85,7 +85,8 @@ processed_admissions <- admission_imp %>%
   mutate(num_visits = n()) %>% 
   slice(1) %>% 
   ungroup() %>% 
-  filter(num_visits > 1)
+  #filter(num_visits > 1)
+  mutate(readmission = ifelse(num_visits > 1, 1, 0))
 ```
 
 ```{r}
