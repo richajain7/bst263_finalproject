@@ -17,6 +17,7 @@ library(readr)
 library(randomForest)
 library(janitor)
 library(xgboost)
+library(glmnet)
 ```
 
 ```{r}
@@ -63,7 +64,7 @@ control <- trainControl(method='cv',
 
 # tuning 
 # 
-tunegrid <- expand.grid(.mtry = 10)
+tunegrid <- expand.grid(.mtry = 1:(ncol(admissions_train_subset)-1))
 # = 1:(ncol(Hitters)-`)
 
 rf_tune <- train(readmission ~ .,
@@ -76,8 +77,11 @@ rf_tune <- train(readmission ~ .,
 print(rf_tune)
 
 ## best mtry
-mtry_min <- which.min(rf_tune$results$Accuracy)
-mtry_min
+mtry_max <- which.max(rf_tune$results$Accuracy)
+mtry_max
+
+# result of max mtry = 11
+# result of min mtry = 50
 ```
 
 ## RF: Final Model
@@ -86,7 +90,7 @@ mtry_min
 class_weights <- ifelse(admissions_train_subset$readmission == 1, 
                         sum(admissions_train_subset$readmission == 0)/sum(admissions_train_subset$readmission == 1), 1) %>% unique()
 rf_final <- randomForest(readmission ~ ., data = admissions_train_subset,
-                         mtry = 30,
+                         mtry = 11,
                          importance = TRUE,
                          ntree = 200,
                          cutoff = c(0.65, 0.35))
@@ -145,8 +149,8 @@ admissions_test_Y = as.numeric(admissions_test %>% dplyr::pull(readmission)) - 1
 # ix_test = setdiff(1:length(ames_Y), ix_train)
 
 parameters = expand.grid(
-  eta = seq(0.01, 0.5, length.out=10),
-  #eta = seq(0.1, 1, length.out=10), # learning rate
+  #eta = seq(0.01, 0.5, length.out=10),
+  eta = seq(0.1, 1, length.out=10), # learning rate
   max.depth = c(2, 4, 6, 8, 10), # maximum depth of tree
   subsample = c(0.25, 0.5, 1), # subsampling ratio
   nrounds = c(2, 4, 6, 8, 10) # maximum number of boosting iterations
@@ -197,6 +201,92 @@ test_pred_probs <- predict(test_fit, admissions_test_X)
 test_pred <- ifelse(test_pred_probs > 0.5, 1, 0)
 mean(admissions_test_Y != test_pred)
 ```
+
+
+# Penalized Regression - Ridge
+
+- Need to do CV to choose lambda
+
+```{r}
+## create an x matrix and y vector from the Hitters data.frame
+## this is needed for input to glmnet
+x <- model.matrix(readmission~.,admissions_train_subset)[,-1]
+y <- admissions_train_subset$readmission
+x_test <- model.matrix(readmission~.,admissions_test_subset)[,-1]
+y_test <- admissions_test_subset$readmission
+if(is.factor(y)) {
+  y <- as.numeric(as.character(y))
+}
+if(is.factor(y_test)) {
+  y_test <- as.numeric(as.character(y_test))
+}
+
+## define a grid of lambda values to try ##
+## note that the lambdas are in descending order, i.e., largest values are first ##
+#grid <- 10^seq(10,-2,length=100)
+grid <- 10^seq(4,-2,length=100)
+## fit ridge for each lambda values using glmnet ##
+ridge.mod <- glmnet(x,y,alpha=0,lambda=grid)
+## structure of returned model coefficients ##
+dim(coef(ridge.mod))
+plot(ridge.mod, xvar="lambda",label=T)
+set.seed(263)
+## use cross-validation to choose lambda ridge
+cv.out=cv.glmnet(x,y,alpha=0)
+plot(cv.out)
+
+bestlam=cv.out$lambda.min
+bestlam
+```
+
+```{r}
+# Train/test split
+set.seed(263)
+## fit on train set
+ridge.mod=glmnet(x,y,alpha=0,lambda=bestlam, thresh=1e-12)
+## assess MSE on test set when lambda=4
+ridge.pred=predict(ridge.mod,s=bestlam,newx=x_test)
+mean((ridge.pred-y_test)^2)
+#predict(ridge.mod,s=50,type="coefficients")
+```
+
+
+# Penalized Regression - Lasso
+
+- Need to do CV to choose a lambda
+
+```{r}
+cv.out.lasso=cv.glmnet(x,y,alpha=1)
+plot(cv.out.lasso)
+
+bestlam.lasso=cv.out.lasso$lambda.min
+bestlam.lasso
+
+lasso.mod=glmnet(x,y,alpha=1,lambda=bestlam.lasso)
+## path plot
+plot(lasso.mod, xvar="lambda", label=T, xlim=c(-5,6))
+
+lasso.pred = predict(lasso.mod, s=bestlam.lasso, newx=x_test)
+mean((lasso.pred-y_test)^2)
+# same error as ridge??
+
+## look at the lasso coefs when using bestlam
+out=glmnet(x,y,alpha=1,lambda=grid)
+lasso.coef=predict(out,type="coefficients",s=bestlam)[1:20,]
+lasso.coef
+
+## nonzero coefs
+lasso.coef[lasso.coef!=0]  
+
+## best subset coefs using same number of variables 
+#coef(regfit.full, sum(lasso.coef != 0)-1)
+
+#plot(lm.pvalues,lasso.coef!=0,pch=20)
+```
+
+
+
+
 
 
 
