@@ -5,15 +5,19 @@ date: "2024-04-26"
 output: html_document
 ---
 
-```{r}
+# Data Processing
+
+```{r, message = F}
+rm(list = ls())
+
 library(caret)
 library(tidyverse)
 library(dplyr)
 library(readr)
 library(randomForest)
 library(janitor)
+library(xgboost)
 ```
-
 
 ```{r}
 # read in train and test data
@@ -25,20 +29,32 @@ admissions_train <- readRDS("admissions_train.rdata")
 admissions_test <- admissions_test %>% 
   mutate(readmission = as.factor(readmission)) %>% 
   clean_names()
-admissions_train <- admissions_train %>% 
-  mutate(readmission = as.factor(readmission)) %>% 
+admissions_train <- admissions_train %>%
+  mutate(readmission = as.factor(readmission)) %>%
   clean_names()
+
+# admissions_train_zeroes <- admissions_train %>% filter(readmission == 0)
+# admissions_train_sample <- admissions_train_zeroes[sample(1:nrow(admissions_train_zeroes), 2063, replace = F),]
+# 
+# admissions_train <- bind_rows(admissions_train %>% filter(readmission == 1),
+#                                        admissions_train_sample)
+```
+
+# subset data to columns we consider for predictors
+
+```{r}
+cols <- colnames(admissions_train)
+admissions_train_subset <- admissions_train[, -c(1:4,9,57, 58)]
+admissions_test_subset <- admissions_test[, -c(1:4,9,57, 58)]
 ```
 
 
 # Random Forest Model
 
+## RF: Cross-Validation
+
 ```{r}
 set.seed(263)
-
-cols <- colnames(admissions_train)
-admissions_train_subset <- admissions_train[, -c(1:4,9,57, 58)]
-admissions_test_subset <- admissions_test[, -c(1:4,9,57, 58)]
 
 # cross-validation
 control <- trainControl(method='cv', 
@@ -47,7 +63,7 @@ control <- trainControl(method='cv',
 
 # tuning 
 # 
-tunegrid <- expand.grid(.mtry = 20)
+tunegrid <- expand.grid(.mtry = 10)
 # = 1:(ncol(Hitters)-`)
 
 rf_tune <- train(readmission ~ .,
@@ -64,17 +80,26 @@ mtry_min <- which.min(rf_tune$results$Accuracy)
 mtry_min
 ```
 
+## RF: Final Model
+
 ```{r}
+class_weights <- ifelse(admissions_train_subset$readmission == 1, 
+                        sum(admissions_train_subset$readmission == 0)/sum(admissions_train_subset$readmission == 1), 1) %>% unique()
 rf_final <- randomForest(readmission ~ ., data = admissions_train_subset,
-                         mtry = mtry_min,
+                         mtry = 30,
                          importance = TRUE,
-                         ntree = 200)
+                         ntree = 200,
+                         cutoff = c(0.65, 0.35))
+
+# The default cutoff is c(0.5, 0.5); Increasing cutoff to c(0.65, 0.35) shifts a lot of predictions from 0 to 1 (as expected)
+
+# classwt 
+# different mtry
 importance(rf_final)
 varImpPlot(rf_final)
 ```
 
-
-# Testing Random Forest
+### RF: Predictions
 
 ```{r}
 # on training data
@@ -83,7 +108,7 @@ train_predict_rf <- predict(rf_final, admissions_train_subset)
 test_predict_rf <- predict(rf_final, admissions_test_subset)
 ```
 
-# Confusion Matrices - RF
+### RF: Confusion Matrices
 
 ```{r}
 rf_final$confusion
@@ -91,20 +116,37 @@ rf_final$confusion
 
 ```{r}
 table(test_predict_rf)
+table(admissions_test_subset$readmission)
+
+admissions_test_subset %>% 
+  mutate(pred = test_predict_rf,
+         accuracy = ifelse(pred == readmission, 1, 0)) %>% 
+  group_by() %>% summarize(mean(accuracy))
 ```
 
+### RF: Out-of-Bag
+
+```{r}
+plot(rf_final)
+```
+
+
+Conclusion on RF: It sucks. We have a 74.23% accuracy rate on our test data. 
 
 # XGBoost
 
 ```{r}
-ames_X = data.matrix(ames %>% dplyr::select(-Sale_Price))
-ames_Y = ames %>% dplyr::pull(Sale_Price)
+admissions_train_X = data.matrix(admissions_train_subset[,1:51]) # making sure readmission is not fed as a predictor
+admissions_train_Y = as.numeric(admissions_train %>% dplyr::pull(readmission)) - 1
+admissions_test_X = data.matrix(admissions_test_subset[,1:51])
+admissions_test_Y = as.numeric(admissions_test %>% dplyr::pull(readmission)) - 1
 
-ix_train = sample(1:length(ames_Y), 0.75*length(ames_Y))
-ix_test = setdiff(1:length(ames_Y), ix_train)
+# ix_train = sample(1:length(ames_Y), 0.75*length(ames_Y))
+# ix_test = setdiff(1:length(ames_Y), ix_train)
 
 parameters = expand.grid(
-  eta = seq(0.1, 1, length.out=10), # learning rate
+  eta = seq(0.01, 0.5, length.out=10),
+  #eta = seq(0.1, 1, length.out=10), # learning rate
   max.depth = c(2, 4, 6, 8, 10), # maximum depth of tree
   subsample = c(0.25, 0.5, 1), # subsampling ratio
   nrounds = c(2, 4, 6, 8, 10) # maximum number of boosting iterations
@@ -113,23 +155,47 @@ parameters = expand.grid(
 parameters$train_error = rep(0, nrow(parameters))
 parameters$test_error = rep(0, nrow(parameters))
 for (i in 1:nrow(parameters)) {
-  fit_xgboost = xgboost(data = ames_X[ix_train,], label = ames_Y[ix_train], 
+  fit_xgboost = xgboost(data = admissions_train_X, label = admissions_train_Y, 
                         eta = parameters$eta[i],
                         max.depth = parameters$max.depth[i],
                         nrounds = parameters$nrounds[i], 
                         subsample = parameters$subsample[i],
-                        objective = "reg:squarederror", 
+                        objective = "reg:logistic", 
                         verbose = F)
   
-  pred_xgboost = predict(fit_xgboost, ames_X[ix_test,])
+  pred_xgboost_probs = predict(fit_xgboost, admissions_test_X)
+  pred_xgboost <- ifelse(pred_xgboost_probs > 0.5, 1, 0)
   
   parameters$train_error[i] = tail(fit_xgboost$evaluation_log$train_rmse, 1)
-  parameters$test_error[i] = sqrt(mean((pred_xgboost - ames_Y[ix_test])^2))
+  parameters$test_error[i] = mean((pred_xgboost != admissions_test_Y))
 }
 
+#picking test error?
 parameters %>% 
   group_by(nrounds) %>% 
   filter(train_error == min(train_error))
+```
+
+```{r}
+table(predicted = pred_xgboost, actual = admissions_test_Y)
+```
+
+
+```{r}
+##Code below is purely for experimenting
+test_fit <- xgboost(data = admissions_train_X, 
+                    label = admissions_train_Y, 
+                    eta = parameters$eta[1],
+                    max.depth = parameters$max.depth[1],
+                    nrounds = parameters$nrounds[1], 
+                    subsample = parameters$subsample[1],
+                    #reg:logistic "logistic regression" vs. binary:logistic "log. regression for binary classification. output prob"
+                    objective = "binary:logistic", 
+                    verbose = F)
+
+test_pred_probs <- predict(test_fit, admissions_test_X)
+test_pred <- ifelse(test_pred_probs > 0.5, 1, 0)
+mean(admissions_test_Y != test_pred)
 ```
 
 

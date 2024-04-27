@@ -65,6 +65,8 @@ sum(is.na(admission_imp))
 
 ##### categorical quantiles
 
+# Note: Individuals with duration stay = 1 are categorized as NA bc buckets are not left inclusive
+
 ```{r}
 # cargorical quantiles
 cutoffs = quantile(admission_imp$DURATION.OF.STAY, probs = seq(0, 1, 0.25))
