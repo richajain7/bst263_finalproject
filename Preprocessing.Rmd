@@ -59,9 +59,9 @@ sum(is.na(admission_imp))
 
 #### length of stay - 3 options:
 
-- use original continous variable
+- use original continuous variable
 - convert to categorical quantiles
-- cut continuous varibale at 15
+- cut continuous variable at 15
 
 ##### categorical quantiles
 
@@ -104,20 +104,27 @@ admissions_train <- processed_admissions[indices, ]
 admissions_test <- processed_admissions[-indices, ]
 ```
 
+#### converting readmission to factor & cleaning names
+
+```{r}
+admissions_test <- admissions_test %>% 
+  mutate(readmission = as.factor(readmission)) %>% 
+  clean_names()
+admissions_train <- admissions_train %>%
+  mutate(readmission = as.factor(readmission)) %>%
+  clean_names()
+
+# admissions_train_zeroes <- admissions_train %>% filter(readmission == 0)
+# admissions_train_sample <- admissions_train_zeroes[sample(1:nrow(admissions_train_zeroes), 2063, replace = F),]
+# 
+# admissions_train <- bind_rows(admissions_train %>% filter(readmission == 1),
+#                                        admissions_train_sample)
+```
+
 ```{r}
 saveRDS(admissions_train, "admissions_train.rdata")
 saveRDS(admissions_test, "admissions_test.rdata")
 ```
-
-
-#### models: 
-- forest related 
-- bagging
-- penalized regression 
-- fit logistic to predict mortality and use those probabilities as weights for IPW
-- GAMs 
-
-
 
 
 

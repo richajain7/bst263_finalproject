@@ -26,21 +26,6 @@ admissions_test <- readRDS("admissions_test.rdata")
 admissions_train <- readRDS("admissions_train.rdata")
 ```
 
-```{r}
-admissions_test <- admissions_test %>% 
-  mutate(readmission = as.factor(readmission)) %>% 
-  clean_names()
-admissions_train <- admissions_train %>%
-  mutate(readmission = as.factor(readmission)) %>%
-  clean_names()
-
-# admissions_train_zeroes <- admissions_train %>% filter(readmission == 0)
-# admissions_train_sample <- admissions_train_zeroes[sample(1:nrow(admissions_train_zeroes), 2063, replace = F),]
-# 
-# admissions_train <- bind_rows(admissions_train %>% filter(readmission == 1),
-#                                        admissions_train_sample)
-```
-
 # subset data to columns we consider for predictors
 
 ```{r}
@@ -48,7 +33,6 @@ cols <- colnames(admissions_train)
 admissions_train_subset <- admissions_train[, -c(1:4,9,57, 58)]
 admissions_test_subset <- admissions_test[, -c(1:4,9,57, 58)]
 ```
-
 
 # Random Forest Model
 
@@ -267,7 +251,7 @@ lasso.mod=glmnet(x,y,alpha=1,lambda=bestlam.lasso)
 plot(lasso.mod, xvar="lambda", label=T, xlim=c(-5,6))
 
 lasso.pred = predict(lasso.mod, s=bestlam.lasso, newx=x_test)
-mean((lasso.pred-y_test)^2)
+mean(abs(lasso.pred-y_test))
 # same error as ridge??
 
 ## look at the lasso coefs when using bestlam
