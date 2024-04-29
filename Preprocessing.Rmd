@@ -68,7 +68,7 @@ sum(is.na(admission_imp))
 # Note: Individuals with duration stay = 1 are categorized as NA bc buckets are not left inclusive
 
 ```{r}
-# cargorical quantiles
+# cartegorical quantiles
 cutoffs = quantile(admission_imp$DURATION.OF.STAY, probs = seq(0, 1, 0.25))
 admission_imp <- admission_imp %>% 
   mutate(Duration_Cat = cut(DURATION.OF.STAY, breaks = cutoffs)) 
@@ -85,7 +85,7 @@ processed_admissions <- admission_imp %>%
   arrange(MRD.No., D.O.A) %>% 
   group_by(MRD.No.) %>% 
   mutate(num_visits = n()) %>% 
-  slice(1) %>% 
+  dplyr::slice(1) %>% 
   ungroup() %>% 
   #filter(num_visits > 1)
   mutate(readmission = ifelse(num_visits > 1, 1, 0))
@@ -102,23 +102,6 @@ set.seed(263)
 indices <- sample(1:nrow(processed_admissions), size = floor(0.8 * nrow(processed_admissions)), replace = FALSE)
 admissions_train <- processed_admissions[indices, ]
 admissions_test <- processed_admissions[-indices, ]
-```
-
-#### converting readmission to factor & cleaning names
-
-```{r}
-admissions_test <- admissions_test %>% 
-  mutate(readmission = as.factor(readmission)) %>% 
-  clean_names()
-admissions_train <- admissions_train %>%
-  mutate(readmission = as.factor(readmission)) %>%
-  clean_names()
-
-# admissions_train_zeroes <- admissions_train %>% filter(readmission == 0)
-# admissions_train_sample <- admissions_train_zeroes[sample(1:nrow(admissions_train_zeroes), 2063, replace = F),]
-# 
-# admissions_train <- bind_rows(admissions_train %>% filter(readmission == 1),
-#                                        admissions_train_sample)
 ```
 
 ```{r}

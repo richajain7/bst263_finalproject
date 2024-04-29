@@ -21,24 +21,40 @@ library(glmnet)
 ```
 
 ```{r}
-# read in train and test data
 admissions_test <- readRDS("admissions_test.rdata")
 admissions_train <- readRDS("admissions_train.rdata")
 ```
 
-# subset data to columns we consider for predictors
+### creating separate vector for test truth
+
+```{r}
+test_true <- admissions_test$readmission
+```
+
+#### converting readmission to factor & cleaning names
+
+```{r}
+admissions_test <- admissions_test %>% 
+  mutate(readmission = as.factor(readmission)) %>% 
+  clean_names()
+admissions_train <- admissions_train %>%
+  mutate(readmission = as.factor(readmission)) %>%
+  clean_names()
+```
+
+#### subset data to columns we consider for predictors
 
 ```{r}
 cols <- colnames(admissions_train)
-admissions_train_subset <- admissions_train[, -c(1:4,9,57, 58)]
-admissions_test_subset <- admissions_test[, -c(1:4,9,57, 58)]
+admissions_train_subset <- admissions_train[, -c(1:4,9,57,58)]
+admissions_test_subset <- admissions_test[, -c(1:4,9,57,58)]
 ```
 
 # Random Forest Model
 
 ## RF: Cross-Validation
 
-```{r}
+```{r, eval = FALSE}
 set.seed(263)
 
 # cross-validation
@@ -47,9 +63,7 @@ control <- trainControl(method='cv',
                         search = 'grid')
 
 # tuning 
-# 
 tunegrid <- expand.grid(.mtry = 1:(ncol(admissions_train_subset)-1))
-# = 1:(ncol(Hitters)-`)
 
 rf_tune <- train(readmission ~ .,
                  data = admissions_train_subset,
@@ -62,43 +76,42 @@ print(rf_tune)
 
 ## best mtry
 mtry_max <- which.max(rf_tune$results$Accuracy)
-mtry_max
-
-# result of max mtry = 11
-# result of min mtry = 50
+mtry_max # result = 11
 ```
 
 ## RF: Final Model
 
 ```{r}
+set.seed(263)
 class_weights <- ifelse(admissions_train_subset$readmission == 1, 
                         sum(admissions_train_subset$readmission == 0)/sum(admissions_train_subset$readmission == 1), 1) %>% unique()
 rf_final <- randomForest(readmission ~ ., data = admissions_train_subset,
                          mtry = 11,
                          importance = TRUE,
                          ntree = 200,
-                         cutoff = c(0.65, 0.35))
+                         cutoff = c(0.5, 0.5))
 
-# The default cutoff is c(0.5, 0.5); Increasing cutoff to c(0.65, 0.35) shifts a lot of predictions from 0 to 1 (as expected)
-
-# classwt 
-# different mtry
-importance(rf_final)
-varImpPlot(rf_final)
+#importance(rf_final)
+#varImpPlot(rf_final)
 ```
 
-### RF: Predictions
+## RF: Predictions
 
 ```{r}
+set.seed(263)
 # on training data
-train_predict_rf <- predict(rf_final, admissions_train_subset)
+train_predict_rf <- predict(rf_final, admissions_train_subset, type = "prob")
 # on testing data
-test_predict_rf <- predict(rf_final, admissions_test_subset)
+test_predict_rf <- predict(rf_final, admissions_test_subset, type = "prob")
+# save test probabilities into a separate variable
+predictions_random_forest <- test_predict_rf[,2]
 ```
 
-### RF: Confusion Matrices
+## RF: Confusion Matrices
 
 ```{r}
+set.seed(263)
+test_predict_rf_binary <- predict(rf_final, admissions_test_subset, type = "response")
 rf_final$confusion
 ```
 
@@ -107,7 +120,7 @@ table(test_predict_rf)
 table(admissions_test_subset$readmission)
 
 admissions_test_subset %>% 
-  mutate(pred = test_predict_rf,
+  mutate(pred = test_predict_rf_binary,
          accuracy = ifelse(pred == readmission, 1, 0)) %>% 
   group_by() %>% summarize(mean(accuracy))
 ```
@@ -118,22 +131,16 @@ admissions_test_subset %>%
 plot(rf_final)
 ```
 
-
-Conclusion on RF: It sucks. We have a 74.23% accuracy rate on our test data. 
-
 # XGBoost
 
 ```{r}
-admissions_train_X = data.matrix(admissions_train_subset[,1:51]) # making sure readmission is not fed as a predictor
+admissions_train_X = data.matrix(admissions_train_subset[,1:51]) 
+# making sure readmission is not fed as a predictor
 admissions_train_Y = as.numeric(admissions_train %>% dplyr::pull(readmission)) - 1
 admissions_test_X = data.matrix(admissions_test_subset[,1:51])
 admissions_test_Y = as.numeric(admissions_test %>% dplyr::pull(readmission)) - 1
 
-# ix_train = sample(1:length(ames_Y), 0.75*length(ames_Y))
-# ix_test = setdiff(1:length(ames_Y), ix_train)
-
 parameters = expand.grid(
-  #eta = seq(0.01, 0.5, length.out=10),
   eta = seq(0.1, 1, length.out=10), # learning rate
   max.depth = c(2, 4, 6, 8, 10), # maximum depth of tree
   subsample = c(0.25, 0.5, 1), # subsampling ratio
@@ -158,7 +165,6 @@ for (i in 1:nrow(parameters)) {
   parameters$test_error[i] = mean((pred_xgboost != admissions_test_Y))
 }
 
-#picking test error?
 parameters %>% 
   group_by(nrounds) %>% 
   filter(train_error == min(train_error))
@@ -167,33 +173,15 @@ parameters %>%
 ```{r}
 table(predicted = pred_xgboost, actual = admissions_test_Y)
 ```
-
-
 ```{r}
-##Code below is purely for experimenting
-test_fit <- xgboost(data = admissions_train_X, 
-                    label = admissions_train_Y, 
-                    eta = parameters$eta[1],
-                    max.depth = parameters$max.depth[1],
-                    nrounds = parameters$nrounds[1], 
-                    subsample = parameters$subsample[1],
-                    #reg:logistic "logistic regression" vs. binary:logistic "log. regression for binary classification. output prob"
-                    objective = "binary:logistic", 
-                    verbose = F)
-
-test_pred_probs <- predict(test_fit, admissions_test_X)
-test_pred <- ifelse(test_pred_probs > 0.5, 1, 0)
-mean(admissions_test_Y != test_pred)
+# saving probabilities of 1s
+predictions_xgboost <- pred_xgboost_probs
 ```
 
 
 # Penalized Regression - Ridge
 
-- Need to do CV to choose lambda
-
 ```{r}
-## create an x matrix and y vector from the Hitters data.frame
-## this is needed for input to glmnet
 x <- model.matrix(readmission~.,admissions_train_subset)[,-1]
 y <- admissions_train_subset$readmission
 x_test <- model.matrix(readmission~.,admissions_test_subset)[,-1]
@@ -205,17 +193,13 @@ if(is.factor(y_test)) {
   y_test <- as.numeric(as.character(y_test))
 }
 
-## define a grid of lambda values to try ##
-## note that the lambdas are in descending order, i.e., largest values are first ##
-#grid <- 10^seq(10,-2,length=100)
 grid <- 10^seq(4,-2,length=100)
-## fit ridge for each lambda values using glmnet ##
-ridge.mod <- glmnet(x,y,alpha=0,lambda=grid)
-## structure of returned model coefficients ##
+ridge.mod <- glmnet(x,y,family="binomial",alpha=0,lambda=grid)
 dim(coef(ridge.mod))
 plot(ridge.mod, xvar="lambda",label=T)
 set.seed(263)
-## use cross-validation to choose lambda ridge
+
+#CV
 cv.out=cv.glmnet(x,y,alpha=0)
 plot(cv.out)
 
@@ -227,48 +211,166 @@ bestlam
 # Train/test split
 set.seed(263)
 ## fit on train set
-ridge.mod=glmnet(x,y,alpha=0,lambda=bestlam, thresh=1e-12)
-## assess MSE on test set when lambda=4
-ridge.pred=predict(ridge.mod,s=bestlam,newx=x_test)
-mean((ridge.pred-y_test)^2)
-#predict(ridge.mod,s=50,type="coefficients")
+ridge.mod=glmnet(x,y,family="binomial",alpha=0,lambda=bestlam, thresh=1e-12)
+# predict
+ridge.pred=predict(ridge.mod,s=bestlam,newx=x_test,type="response")
+# check MAE
+threshold <- 0.3 #lower prob for 1s
+binary_predictions_ridge <- ifelse(ridge.pred >= threshold, 1, 0)
+sum(binary_predictions_ridge)
+mean(abs(binary_predictions_ridge-y_test))
+# save probabilities
+ridge_probs <- ridge.pred
 ```
 
+```{r}
+## look at the ridge coefs when using bestlam
+out_ridge=glmnet(x,y,family = "binomial", alpha=0,lambda=grid)
+ridge_coef=predict(out_ridge,type="coefficients",s=bestlam)
+ridge_coef
+```
 
 # Penalized Regression - Lasso
 
-- Need to do CV to choose a lambda
-
 ```{r}
-cv.out.lasso=cv.glmnet(x,y,alpha=1)
+set.seed(263)
+cv.out.lasso=cv.glmnet(x,y,family = "binomial", alpha=1)
 plot(cv.out.lasso)
 
 bestlam.lasso=cv.out.lasso$lambda.min
 bestlam.lasso
 
-lasso.mod=glmnet(x,y,alpha=1,lambda=bestlam.lasso)
-## path plot
-plot(lasso.mod, xvar="lambda", label=T, xlim=c(-5,6))
+lasso.mod=glmnet(x,y,family = "binomial", alpha=1,lambda=bestlam.lasso)
 
-lasso.pred = predict(lasso.mod, s=bestlam.lasso, newx=x_test)
-mean(abs(lasso.pred-y_test))
-# same error as ridge??
+lasso.pred = predict(lasso.mod, s=bestlam.lasso, newx=x_test, type = "response")
+threshold <- 0.3 #lower prob for 1s
+binary_predictions_lasso <- ifelse(lasso.pred >= threshold, 1, 0)
+sum(binary_predictions_lasso)
+mean(abs(binary_predictions_lasso-y_test))
+lasso_probs <- lasso.pred
 
 ## look at the lasso coefs when using bestlam
-out=glmnet(x,y,alpha=1,lambda=grid)
-lasso.coef=predict(out,type="coefficients",s=bestlam)[1:20,]
+out=glmnet(x,y,family = "binomial", alpha=1,lambda=grid)
+lasso.coef=predict(out,type="coefficients",s=bestlam.lasso)
 lasso.coef
 
 ## nonzero coefs
 lasso.coef[lasso.coef!=0]  
-
-## best subset coefs using same number of variables 
-#coef(regfit.full, sum(lasso.coef != 0)-1)
-
-#plot(lm.pvalues,lasso.coef!=0,pch=20)
 ```
 
 
+# Histograms
+
+```{r}
+# rf
+hist(predictions_random_forest)
+
+#xgboost
+hist(pred_xgboost_probs)
+
+#ridge 
+hist(ridge_probs)
+
+#lasso
+hist(lasso_probs)
+```
+
+# Ensemble Method
+
+```{r}
+# Average out all probabilities across models
+ensembled.probs <- data.frame(
+  rf = predictions_random_forest,
+  xgboost = pred_xgboost_probs,
+  lasso = lasso_probs
+)
+colnames(ensembled.probs) <- c("rf", "xgboost", "lasso")
+ensembled.probs <- ensembled.probs %>% 
+  rowwise() %>% 
+  mutate(mean_prob = mean(c(rf, xgboost, lasso)))
+hist(ensembled.probs$mean_prob)
+
+# Test different thresholds
+#threshold <- 0.5
+#ensembled.pred <- ifelse(ensembled.probs >= threshold, 1, 0)
+```
+
+## Ensemble: AUC Curve for different thresholds
+
+```{r}
+# test all thresholds 
+thresholds <- seq(0, 1, 0.01)
+auc <- c()
+
+# generating auc curve for each different method AND overall
+# 1 - RF, 2 - XGBoost, 3 - Lasso, 4 - Mean
+for(col in 1:4){
+  sensitivity_vals <- c()
+  specificity_vals <- c()
+  
+  for(t in thresholds){
+    
+    ensembled.pred <- ifelse(ensembled.probs[,col] >= t, 1, 0)
+    ensembled.pred <- as.factor(ensembled.pred)
+    test_true <- as.factor(test_true)
+    sens <- sensitivity(ensembled.pred, test_true)
+    spec <- specificity(ensembled.pred, test_true)
+    sensitivity_vals <- c(sensitivity_vals, sens)
+    specificity_vals <- c(specificity_vals, spec)
+    
+  }
+  
+  plot(1-specificity_vals, sensitivity_vals, main = paste("Method", col), type = "l",
+       xlab = "False Positive Rate",
+       ylab = "True Positive Rate")
+  abline(0,1)
+  
+  n <- 100
+  colors <- colorRampPalette(c("red", "yellow", 
+                               "green", "blue"))(n)
+  
+  # Draw the gradient legend
+  z <- matrix(1:n, nrow = 1)
+  legend_x <- 1 - min(specificity_vals)  
+  legend_y <- min(sensitivity_vals)  
+  legend_width <- diff(range(specificity_vals)) / 8 
+  legend_height <- diff(range(sensitivity_vals)) / 30  
+  layout(1)
+  layout(matrix(1:2, ncol = 2), widths = c(5, 1), heights = c(1,1))  
+  plot(1-specificity_vals, sensitivity_vals, main = col, 
+       type = "l", axes = FALSE, xlab = "", ylab = "")
+  axis(4, at = seq(0, 1, 0.1), labels = seq(0, 1, 0.1))  
+  abline(0,1)
+  
+  for (i in 1:(length(sensitivity_vals)-1)) {
+    
+  segments(1-specificity_vals[i], sensitivity_vals[i], 
+           1-specificity_vals[i+1], sensitivity_vals[i+1], 
+           col = colors[i * n / length(sensitivity_vals)], lwd = 2)
+    
+  }
+  
+  par(mar = c(5, 0, 4, 5))  
+  image(z = z, col = colors, xaxt = "n", yaxt = "n", bty = "n", xlab = "", ylab = "")
+  axis(1, at = seq(0, 1, length.out = n), labels = seq(0, 1, length.out = n), 
+       las = 1, cex.axis = 0.7) 
+  box() 
+
+  # Return to the previous plotting parameters
+  layout(1)
+
+  # Calculate AUC using the trapezoidal rule
+  auc <- c(auc, sum(diff(specificity_vals) * (sensitivity_vals[-1] + 
+                                           sensitivity_vals[-length(sensitivity_vals)]) / 2))
+}
+```
+
+# AUC values
+
+```{r}
+# RF, XGBoost, Lasso, Mean
+auc
+```
 
 
 
