@@ -5,6 +5,7 @@ date: "2024-04-29"
 output: html_document
 ---
 
+# Library Loading
 
 ```{r, message = F}
 rm(list = ls())
@@ -17,20 +18,32 @@ library(randomForest)
 library(janitor)
 library(xgboost)
 library(glmnet)
+library(writexl)
 ```
 
-```{r}
-# read in train and test data
-admissions_test <- readRDS("admissions_test.rdata") %>% select(-c(1:4, 9, 57, 58))
-admissions_train <- readRDS("admissions_train.rdata") %>% select(-c(1:4, 9, 57, 58))
-```
+# Data Import and Binding
 
-```{r}
+```{r, message = F}
+import_clean <- function(file){
+  readRDS(file) %>% select(-c(1:4, 9, 57, 58)) %>% clean_names() %>% 
+    mutate(male = ifelse(gender == "M", 1, 0),
+           urban = ifelse(rural == "U", 1, 0),
+           emergency_admission = ifelse(type_of_admission_emergency_opd == "E", 1, 0),
+           across(c(age, duration_of_stay, duration_of_intensive_unit_stay), ~ as.numeric(.)),
+           across(c(chest_infection, readmission, male, urban, emergency_admission), ~ as.integer(.))) %>% 
+    select(-c(gender, rural, type_of_admission_emergency_opd))
+}
+
+admissions_test <- import_clean("admissions_test.rdata")
+admissions_train <- import_clean("admissions_train.rdata")
 full <- rbind(admissions_train, admissions_test)
 
 dfs <- list(full, admissions_train, admissions_test)
-endlist <- list()
+```
 
+# Generating Table 1 Output
+
+```{r}
 for(i in seq_along(dfs)) {
   test <- summarise_if(dfs[[i]], function(x) class(x)[1]  == "numeric", list(Mean.Count = mean, SD.Prop = sd)) %>%
     pivot_longer(cols = everything()) %>%
@@ -40,46 +53,24 @@ for(i in seq_along(dfs)) {
     pivot_longer(cols = everything()) %>%
     separate(name, into = c("var", "Func"), sep = "_(?=[^_]*$)") %>%
     pivot_wider(names_from = var, values_from = value)
-  factorvars <- colnames(dfs[[i]] %>% select(where(is.factor) | where(is.character)))
-  summary_func <- function(var){
-    var = enquo(var)
-    out = dfs[[i]] %>% mutate(total = n()) %>% group_by(!!var) %>% summarize(Mean.Count = n(), SD.Prop = Mean.Count/first(total))
-    return(out)
-  }
-  testCat <- lapply(factorvars, summary_func)
-  test_fin <- left_join(test, testBin, by = "Func")
+  testCat <- dfs[[i]] %>% mutate(total = n()) %>% group_by(outcome) %>% 
+    summarize(Mean.Count = n(), SD.Prop = Mean.Count/first(total)) %>% 
+    pivot_longer(cols = c(2:3), names_to = "Func") %>% pivot_wider(names_from = outcome)
+  test_fin <- left_join(test, testBin, by = "Func") %>% left_join(testCat, by = "Func")
   endlist[[i]] <- test_fin
 }
 
-final <- bind_rows(endlist, .id = "Dataframe") %>%
+combined <- bind_rows(endlist, .id = "Dataframe") %>%
   mutate(Dataframe = c(rep("Full", 2), rep("Training", 2), rep("Test", 2)))
-final <- final %>%
-  t() %>%
-  as.data.frame()
-
+final <- combined %>% 
+  pivot_longer(cols = c(3:ncol(combined))) %>% 
+  pivot_wider(names_from = c(Dataframe, Func))
 ```
+
+# Export to Excel for Proper Formatting
 
 ```{r}
-factorvars <- colnames(dfs[[1]] %>% select(where(is.factor) | where(is.character)))
-summary_func <- function(data, var){
-    var = enquo(var)
-    out = data %>% 
-      mutate(total = n()) %>%
-      group_by(!!var) %>% 
-      summarize(Mean.Count = n(), 
-                SD.Prop = Mean.Count/first(total))
-    return(out)
-}
-
-summary_func(admissions_test, GENDER)
+write_xlsx(final, "Table 1 Data.xlsx")
 ```
 
-```{r}
-dfs[[1]] %>%
-  select(factorvars) %>%
-  pivot_longer(everything(), names_to="variables", values_to = "values") %>%
-  group_by(variables, values) %>%
-  summarize(Mean.Count = n(), SD.Prop = Mean.Count/nrow(dfs[[1]]))
-
-```
 

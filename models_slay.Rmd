@@ -25,7 +25,7 @@ admissions_test <- readRDS("admissions_test.rdata")
 admissions_train <- readRDS("admissions_train.rdata")
 ```
 
-### creating separate vector for test truth
+#### creating separate vector for test truth
 
 ```{r}
 test_true <- admissions_test$readmission
@@ -125,7 +125,7 @@ admissions_test_subset %>%
   group_by() %>% summarize(mean(accuracy))
 ```
 
-### RF: Out-of-Bag
+## RF: Out-of-Bag
 
 ```{r}
 plot(rf_final)
@@ -360,7 +360,7 @@ for(col in 1:4){
 }
 ```
 
-# AUC values
+## AUC values
 
 ```{r}
 # RF, XGBoost, Lasso, Mean
