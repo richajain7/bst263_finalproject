@@ -18,6 +18,8 @@ library(randomForest)
 library(janitor)
 library(xgboost)
 library(glmnet)
+library(table1)
+library(kableExtra)
 ```
 
 ```{r}
@@ -365,6 +367,39 @@ for(col in 1:4){
 ```{r}
 # RF, XGBoost, Lasso, Mean
 auc
+```
+
+
+- great accuracy if everyone was a zero
+- breakdown to false positives and false negatives
+- so heavily weighted towards the zeros 
+
+
+# Table 1 Summary Statistics
+
+```{r}
+rf_acc <- 0.782
+rf_auc <- 0.630
+xg_mae <- 0.254
+xg_auc <- 0.601
+lasso_mae <- 0.249
+lasso_auc <- 0.664
+ensemble_auc <- 0.639
+table_df <- data.frame(
+  Model = c("Random Forest", "XGBoost", "Penalized Regression - Lasso", "Ensemble"),
+  Accuracy = c(rf_acc, "", "", ""),
+  MAE = c("", xg_mae, lasso_mae, ""),
+  AUC = c(rf_auc, xg_auc, lasso_auc, ensemble_auc)
+)
+
+table_df %>% 
+  kable(padding = -5L) %>% 
+  kable_styling(
+    bootstrap_options = "striped", 
+    full_width = F, 
+    fixed_thead = T
+    #extra_css = "td { line-height: 0.5; }"
+  )
 ```
 
 
