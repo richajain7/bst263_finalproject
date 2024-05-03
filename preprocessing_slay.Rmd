@@ -48,7 +48,6 @@ admission <- replace(admission, admission == "\\", NA)
 sum(is.na(admission))
 ```
 
-
 ```{r}
 admission_imp <- kNN(admission, k = 5, variable = admission_columns, imp_var = FALSE)
 ```
@@ -57,22 +56,22 @@ admission_imp <- kNN(admission, k = 5, variable = admission_columns, imp_var = F
 sum(is.na(admission_imp))
 ```
 
-#### length of stay - 3 options:
+<!-- #### length of stay - 3 options: -->
 
-- use original continuous variable
-- convert to categorical quantiles
-- cut continuous variable at 15
+<!-- - use original continuous variable -->
+<!-- - convert to categorical quantiles -->
+<!-- - cut continuous variable at 15 -->
 
-##### categorical quantiles
+<!-- ##### categorical quantiles -->
 
-# Note: Individuals with duration stay = 1 are categorized as NA bc buckets are not left inclusive
+<!-- # Note: Individuals with duration stay = 1 are categorized as NA bc buckets are not left inclusive -->
 
-```{r}
-# cartegorical quantiles
-cutoffs = quantile(admission_imp$DURATION.OF.STAY, probs = seq(0, 1, 0.25))
-admission_imp <- admission_imp %>% 
-  mutate(Duration_Cat = cut(DURATION.OF.STAY, breaks = cutoffs)) 
-```
+<!-- ```{r} -->
+<!-- # categorical quantiles -->
+<!-- cutoffs = quantile(admission_imp$DURATION.OF.STAY, probs = seq(0, 1, 0.25)) -->
+<!-- admission_imp <- admission_imp %>%  -->
+<!--   mutate(Duration_Cat = cut(DURATION.OF.STAY, breaks = cutoffs))  -->
+<!-- ``` -->
 
 #### generate the outcome variable column: 
 
@@ -80,14 +79,12 @@ admission_imp <- admission_imp %>%
 
 ```{r}
 processed_admissions <- admission_imp %>% 
-  #mutate(D.O.A = coalesce(as.Date(D.O.A, format = "%m/%d/%Y")), as.Date(D.O.A, format = "%d/%m/%Y")) %>% 
   mutate(D.O.A = coalesce(mdy(D.O.A), dmy(D.O.A))) %>% 
   arrange(MRD.No., D.O.A) %>% 
   group_by(MRD.No.) %>% 
   mutate(num_visits = n()) %>% 
   dplyr::slice(1) %>% 
   ungroup() %>% 
-  #filter(num_visits > 1)
   mutate(readmission = ifelse(num_visits > 1, 1, 0))
 ```
 
@@ -105,9 +102,11 @@ admissions_test <- processed_admissions[-indices, ]
 ```
 
 ```{r}
+saveRDS(processed_admissions, "all_admissions.rdata")
 saveRDS(admissions_train, "admissions_train.rdata")
 saveRDS(admissions_test, "admissions_test.rdata")
 ```
+
 
 
 
