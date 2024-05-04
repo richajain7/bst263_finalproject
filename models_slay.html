@@ -613,8 +613,8 @@ admissions_train &lt;- admissions_train %&gt;%
 <div id="subset-data-to-columns-we-consider-for-predictors" class="section level4">
 <h4>subset data to columns we consider for predictors</h4>
 <pre class="r"><code>cols &lt;- colnames(admissions_train)
-admissions_train_subset &lt;- admissions_train[, -c(1:4,9,57,58)]
-admissions_test_subset &lt;- admissions_test[, -c(1:4,9,57,58)]</code></pre>
+admissions_train_subset &lt;- admissions_train[, -c(1:4,9,57)]
+admissions_test_subset &lt;- admissions_test[, -c(1:4,9,57)]</code></pre>
 </div>
 </div>
 <div id="random-forest-model" class="section level1">
@@ -755,11 +755,14 @@ for (i in 1:nrow(parameters)) {
                         objective = &quot;reg:logistic&quot;, 
                         verbose = F)
   
+  pred_train_xgboost_probs = predict(fit_xgboost, admissions_train_X)
+  pred_train_xgboost &lt;- ifelse(pred_train_xgboost_probs &gt; 0.5, 1, 0)
+  
   pred_xgboost_probs = predict(fit_xgboost, admissions_test_X)
   pred_xgboost &lt;- ifelse(pred_xgboost_probs &gt; 0.5, 1, 0)
   
-  parameters$train_error[i] = tail(fit_xgboost$evaluation_log$train_rmse, 1)
-  parameters$test_error[i] = mean((pred_xgboost != admissions_test_Y))
+  parameters$train_error[i] = mean(abs(pred_train_xgboost != admissions_train_Y))
+  parameters$test_error[i] = mean(abs(pred_xgboost != admissions_test_Y))
 }
 
 parameters %&gt;% 
@@ -769,18 +772,27 @@ parameters %&gt;%
 ## # Groups:   nrounds [5]
 ##     eta max.depth subsample nrounds train_error test_error
 ##   &lt;dbl&gt;     &lt;dbl&gt;     &lt;dbl&gt;   &lt;dbl&gt;       &lt;dbl&gt;      &lt;dbl&gt;
-## 1   1          10         1       2       0.353      0.256
-## 2   1          10         1       4       0.327      0.258
-## 3   0.8        10         1       6       0.288      0.254
-## 4   0.8        10         1       8       0.259      0.257
-## 5   0.8        10         1      10       0.234      0.256</code></pre>
+## 1   0.6        10         1       2      0.164       0.242
+## 2   0.8        10         1       4      0.146       0.249
+## 3   0.8        10         1       6      0.105       0.254
+## 4   0.8        10         1       8      0.0795      0.257
+## 5   0.8        10         1      10      0.0597      0.256</code></pre>
 <pre class="r"><code>table(predicted = pred_xgboost, actual = admissions_test_Y)</code></pre>
 <pre><code>##          actual
 ## predicted    0    1
 ##         0 1676  436
 ##         1  238   99</code></pre>
-<pre class="r"><code># saving probabilities of 1s
-predictions_xgboost &lt;- pred_xgboost_probs</code></pre>
+<pre class="r"><code>#FINAL MODEL XGBOOST
+fit_xgboost_final = xgboost(data = admissions_test_X, label = admissions_test_Y, 
+                        eta = 0.8,
+                        max.depth = 10,
+                        nrounds = 10, 
+                        subsample = 1,
+                        objective = &quot;reg:logistic&quot;, 
+                        verbose = F)
+
+# saving probabilities of 1s
+predictions_xgboost &lt;- predict(fit_xgboost_final, admissions_test_X)</code></pre>
 </div>
 <div id="penalized-regression---ridge" class="section level1">
 <h1>Penalized Regression - Ridge</h1>
@@ -1015,7 +1027,7 @@ for(col in 1:4){
 <div id="auc-values" class="section level2">
 <h2>AUC values</h2>
 <pre class="r"><code># RF, XGBoost, Lasso, Mean
-auc</code></pre>
+auc #higher the better</code></pre>
 <pre><code>## [1] 0.6302176 0.6009058 0.6638444 0.6386425</code></pre>
 <ul>
 <li>great accuracy if everyone was a zero</li>
@@ -1028,7 +1040,7 @@ auc</code></pre>
 <h1>Table 1 Summary Statistics</h1>
 <pre class="r"><code>rf_acc &lt;- 0.782
 rf_auc &lt;- 0.630
-xg_mae &lt;- 0.254
+xg_mae &lt;- 0.242
 xg_auc &lt;- 0.601
 lasso_mae &lt;- 0.249
 lasso_auc &lt;- 0.664
@@ -1086,7 +1098,7 @@ XGBoost
 <td style="text-align:left;">
 </td>
 <td style="text-align:left;">
-0.254
+0.242
 </td>
 <td style="text-align:right;">
 0.601

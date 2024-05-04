@@ -48,8 +48,8 @@ admissions_train <- admissions_train %>%
 
 ```{r}
 cols <- colnames(admissions_train)
-admissions_train_subset <- admissions_train[, -c(1:4,9,57,58)]
-admissions_test_subset <- admissions_test[, -c(1:4,9,57,58)]
+admissions_train_subset <- admissions_train[, -c(1:4,9,57)]
+admissions_test_subset <- admissions_test[, -c(1:4,9,57)]
 ```
 
 # Random Forest Model
@@ -160,11 +160,14 @@ for (i in 1:nrow(parameters)) {
                         objective = "reg:logistic", 
                         verbose = F)
   
+  pred_train_xgboost_probs = predict(fit_xgboost, admissions_train_X)
+  pred_train_xgboost <- ifelse(pred_train_xgboost_probs > 0.5, 1, 0)
+  
   pred_xgboost_probs = predict(fit_xgboost, admissions_test_X)
   pred_xgboost <- ifelse(pred_xgboost_probs > 0.5, 1, 0)
   
-  parameters$train_error[i] = tail(fit_xgboost$evaluation_log$train_rmse, 1)
-  parameters$test_error[i] = mean((pred_xgboost != admissions_test_Y))
+  parameters$train_error[i] = mean(abs(pred_train_xgboost != admissions_train_Y))
+  parameters$test_error[i] = mean(abs(pred_xgboost != admissions_test_Y))
 }
 
 parameters %>% 
@@ -176,8 +179,17 @@ parameters %>%
 table(predicted = pred_xgboost, actual = admissions_test_Y)
 ```
 ```{r}
+#FINAL MODEL XGBOOST
+fit_xgboost_final = xgboost(data = admissions_test_X, label = admissions_test_Y, 
+                        eta = 0.8,
+                        max.depth = 10,
+                        nrounds = 10, 
+                        subsample = 1,
+                        objective = "reg:logistic", 
+                        verbose = F)
+
 # saving probabilities of 1s
-predictions_xgboost <- pred_xgboost_probs
+predictions_xgboost <- predict(fit_xgboost_final, admissions_test_X)
 ```
 
 
@@ -264,17 +276,18 @@ lasso.coef[lasso.coef!=0]
 # Histograms
 
 ```{r}
+par(mfrow = c(2,2))
 # rf
-hist(predictions_random_forest)
+hist(predictions_random_forest, main = "Random Forest Predicted Probabilities", xlab = "")
 
 #xgboost
-hist(pred_xgboost_probs)
+hist(pred_xgboost_probs, main = "XGBoost Predicted Probabilities", xlab = "")
 
 #ridge 
-hist(ridge_probs)
+hist(ridge_probs, main = "Ridge Predicted Probabilities", xlab = "")
 
 #lasso
-hist(lasso_probs)
+hist(lasso_probs, main = "Lasso Predicted Probabilities", xlab = "")
 ```
 
 # Ensemble Method
@@ -290,7 +303,7 @@ colnames(ensembled.probs) <- c("rf", "xgboost", "lasso")
 ensembled.probs <- ensembled.probs %>% 
   rowwise() %>% 
   mutate(mean_prob = mean(c(rf, xgboost, lasso)))
-hist(ensembled.probs$mean_prob)
+hist(ensembled.probs$mean_prob, main = "Ensembled Predicted Probabilities", xlab = "")
 
 # Test different thresholds
 #threshold <- 0.5
@@ -304,6 +317,7 @@ hist(ensembled.probs$mean_prob)
 thresholds <- seq(0, 1, 0.01)
 auc <- c()
 titles <- c("Random Forest", "XGBoost","Lasso","Ensemble")
+plots <- list()
 # generating auc curve for each different method AND overall
 # 1 - RF, 2 - XGBoost, 3 - Lasso, 4 - Mean
 for(col in 1:4){
@@ -321,7 +335,7 @@ for(col in 1:4){
     specificity_vals <- c(specificity_vals, spec)
     
   }
-  
+  par(mfrow = c(2, 2))
   n <- 100
   colors <- colorRampPalette(c("red", "yellow", 
                                "green", "blue"))(n)
@@ -352,7 +366,7 @@ for(col in 1:4){
   axis(1, at = seq(0, 1, length.out = n), labels = seq(0, 1, length.out = n), 
        las = 1, cex.axis = 0.7) 
   box() 
-
+  plots[[col]] <- recordPlot()
   # Return to the previous plotting parameters
   layout(1)
 
@@ -366,7 +380,7 @@ for(col in 1:4){
 
 ```{r}
 # RF, XGBoost, Lasso, Mean
-auc
+auc #higher the better
 ```
 
 
@@ -380,7 +394,7 @@ auc
 ```{r}
 rf_acc <- 0.782
 rf_auc <- 0.630
-xg_mae <- 0.254
+xg_mae <- 0.242
 xg_auc <- 0.601
 lasso_mae <- 0.249
 lasso_auc <- 0.664
