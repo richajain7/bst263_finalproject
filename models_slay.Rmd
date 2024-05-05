@@ -416,7 +416,111 @@ table_df %>%
   )
 ```
 
+```{r}
+final_comparison <- data.frame(ensembled.probs,
+                               actual = admissions_test$readmission)
+ 
+false_neg_calc <- function(cutoff, var){
+  var = enquo(var)
+  temp <- final_comparison %>%
+    mutate(pred = ifelse(!!var >= cutoff, 1, 0)) %>%
+    group_by(actual, pred) %>%
+    summarize(n = n(), .groups = 'drop') %>%
+    filter(actual == 1)
+  if(nrow(temp) == 1 & cutoff < 0.5){return(0)}
+  else{return(false_neg = temp$n[1]/sum(temp$n))}
+}
+ 
+cutoffs = c(cutoff = seq(0,1,0.01))
+false_neg_rf = lapply(cutoffs, function(x){false_neg_calc(x, rf)})
+false_neg_xg = lapply(cutoffs, function(x){false_neg_calc(x, xgboost)})
+false_neg_la = lapply(cutoffs, function(x){false_neg_calc(x, lasso)})
+false_neg_en = lapply(cutoffs, function(x){false_neg_calc(x, mean_prob)})
+ 
+threshold_comparison <- data.frame(cutoffs,
+                                   rf = unlist(false_neg_rf),
+                                   xgboost = unlist(false_neg_xg),
+                                   lasso = unlist(false_neg_la),
+                                   ensemble = unlist(false_neg_en))
+```
+ 
+```{r}
+plot(threshold_comparison$cutoffs, threshold_comparison$ensemble, col = "cornflowerblue", type = "l", xlab = "Predicted Probability Threshold", ylab = "False Negative %", main = "False Negative % by Probability Threshold")
+lines(threshold_comparison$cutoffs, threshold_comparison$rf, col = "red")
+lines(threshold_comparison$cutoffs, threshold_comparison$xgboost, col = "orange")
+lines(threshold_comparison$cutoffs, threshold_comparison$lasso, col = "purple")
+legend("bottomright", lty = 1, col = c("cornflowerblue", "red", "orange", "purple"), legend = c("Ensemble", "Random Forest", "XGBoost", "LASSO"))
+abline(v = 0.5, col = "black", lty = 2)
+```
 
-
-
+```{r}
+final_comparison <- data.frame(ensembled.probs,
+                               actual = admissions_test$readmission)
+ 
+false_neg_calc <- function(cutoff, var){
+  var = enquo(var)
+  temp <- final_comparison %>%
+    mutate(pred = ifelse(!!var >= cutoff, 1, 0)) %>%
+    group_by(actual, pred) %>%
+    summarize(n = n(), .groups = 'drop') %>%
+    filter(actual == 1)
+  if(nrow(temp) == 1 & cutoff < 0.5){return(0)}
+  else{return(false_neg = temp$n[1]/sum(temp$n))}
+}
+ 
+false_pos_calc <- function(cutoff, var){
+  var = enquo(var)
+  temp <- final_comparison %>%
+    mutate(pred = ifelse(!!var >= cutoff, 1, 0)) %>%
+    group_by(actual, pred) %>%
+    summarize(n = n(), .groups = 'drop') %>%
+    filter(actual == 0) %>%
+    arrange(desc(pred))
+  if(nrow(temp) == 1 & cutoff < 0.5){return(1)}
+  if(nrow(temp) == 1 & cutoff > 0.5){return(0)}
+  else{return(false_pos = temp$n[1]/sum(temp$n))}
+}
+ 
+false_neg_rf = lapply(cutoffs, function(x){false_neg_calc(x, rf)})
+false_neg_xg = lapply(cutoffs, function(x){false_neg_calc(x, xgboost)})
+false_neg_la = lapply(cutoffs, function(x){false_neg_calc(x, lasso)})
+false_neg_en = lapply(cutoffs, function(x){false_neg_calc(x, mean_prob)})
+ 
+false_pos_rf = lapply(cutoffs, function(x){false_pos_calc(x, rf)})
+false_pos_xg = lapply(cutoffs, function(x){false_pos_calc(x, xgboost)})
+false_pos_la = lapply(cutoffs, function(x){false_pos_calc(x, lasso)})
+false_pos_en = lapply(cutoffs, function(x){false_pos_calc(x, mean_prob)})
+ 
+threshold_comparison <- data.frame(cutoffs,
+                                   rf_neg = unlist(false_neg_rf),
+                                   xgboost_neg = unlist(false_neg_xg),
+                                   lasso_neg = unlist(false_neg_la),
+                                   ensemble_neg = unlist(false_neg_en),
+                                   rf_pos = unlist(false_pos_rf),
+                                   xgboost_pos = unlist(false_pos_xg),
+                                   lasso_pos = unlist(false_pos_la),
+                                   ensemble_pos = unlist(false_pos_en))
+```
+ 
+```{r}
+plot(threshold_comparison$cutoffs, threshold_comparison$ensemble_neg, col = "cornflowerblue", type = "l", xlab = "Predicted Probability Threshold", ylab = "False Negative %", main = "False Negative % by Probability Threshold")
+lines(threshold_comparison$cutoffs, threshold_comparison$rf_neg, col = "red")
+lines(threshold_comparison$cutoffs, threshold_comparison$xgboost_neg, col = "orange")
+lines(threshold_comparison$cutoffs, threshold_comparison$lasso_neg, col = "purple")
+legend("bottomright", lty = 1, col = c("cornflowerblue", "red", "orange", "purple"), legend = c("Ensemble", "Random Forest", "XGBoost", "LASSO"))
+abline(v = 0.5, col = "black", lty = 3)
+ 
+plot(threshold_comparison$cutoffs, threshold_comparison$ensemble_pos, col = "cornflowerblue", type = "l", xlab = "Predicted Probability Threshold", ylab = "False Positive %", main = "False Positive % by Probability Threshold")
+lines(threshold_comparison$cutoffs, threshold_comparison$rf_pos, col = "red")
+lines(threshold_comparison$cutoffs, threshold_comparison$xgboost_pos, col = "orange")
+lines(threshold_comparison$cutoffs, threshold_comparison$lasso_pos, col = "purple")
+legend("topright", lty = 1, col = c("cornflowerblue", "red", "orange", "purple"), legend = c("Ensemble", "Random Forest", "XGBoost", "LASSO"))
+abline(v = 0.5, col = "black", lty = 3)
+ 
+plot(threshold_comparison$cutoffs, threshold_comparison$ensemble_neg, col = "cornflowerblue", type = "l", xlab = "Predicted Probability Threshold", ylab = "Prediction %", main = "Ensemble Model Prediction % by Probability Threshold")
+lines(threshold_comparison$cutoffs, threshold_comparison$ensemble_pos, col = "cornflowerblue", lty = 2)
+legend("topright", lty = c(1,2), col = "cornflowerblue", legend = c("False Negative", "False Positive"))
+abline(v = 0.5, col = "black", lty = 3)
+```
+- want something below 0.2 
 
